@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from burp import IBurpExtender, IHttpListener, ITab, IContextMenuFactory, IMessageEditorController
+from burp import IBurpExtender, IHttpListener, ITab, IContextMenuFactory, IMessageEditorController, IExtensionStateListener
 from java.awt import BorderLayout, GridBagLayout, GridBagConstraints, Insets, Dimension, FlowLayout
 from javax.swing import JPanel, JLabel, JTextField, JTextArea, JCheckBox, JButton, JScrollPane, BorderFactory, JMenuItem, JTable, JComboBox, ListSelectionModel, JSpinner, SpinnerNumberModel, JSplitPane, JFileChooser
 from javax.swing.table import DefaultTableModel
@@ -15,12 +15,13 @@ try:
 except ImportError:
     import simplejson as json
 
-class BurpExtender(IBurpExtender, ITab, IContextMenuFactory, IMessageEditorController, ActionListener):
+class BurpExtender(IBurpExtender, ITab, IContextMenuFactory, IMessageEditorController, ActionListener, IExtensionStateListener):
     def registerExtenderCallbacks(self, callbacks):
         self.callbacks = callbacks
         self.helpers = callbacks.getHelpers()
         callbacks.setExtensionName("Permiter")
         callbacks.registerContextMenuFactory(self)
+        callbacks.registerExtensionStateListener(self)
         self.roles = {}
         self.test_results = []
         self.target_scope = ""
@@ -33,6 +34,7 @@ class BurpExtender(IBurpExtender, ITab, IContextMenuFactory, IMessageEditorContr
         callbacks.addSuiteTab(self)
         print("Permiter")
         print("Author: Dave Blandford");
+        print("Twitter: @hackr1ot")
         print("Email: dave@mailo.com");
         print(
         '''
@@ -77,6 +79,11 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
 -----END PGP PUBLIC KEY BLOCK-----
         '''
         )
+
+    def extensionUnloaded(self):
+        self.stop_testing = True
+        if self.current_testing_thread and self.current_testing_thread.isAlive():
+            self.current_testing_thread.join(5)
 
     def createGUI(self):
         self.panel = JPanel(BorderLayout())
@@ -529,8 +536,16 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                     "skip_media": self.skip_media_checkbox.isSelected(),
                     "use_entire_history": self.use_entire_history_checkbox.isSelected()
                 }
-                with open(file_path, 'w') as f:
-                    f.write(json.dumps(state_data, indent=2))
+                def _do_save(path, data):
+                    try:
+                        with open(path, 'w') as f:
+                            f.write(json.dumps(data, indent=2))
+                        self.addStatus("State saved to %s" % path)
+                    except Exception as e:
+                        self.addStatus("Error saving state: %s" % str(e))
+                thread = threading.Thread(target=_do_save, args=(file_path, state_data))
+                thread.daemon = True
+                thread.start()
         except Exception as e:
             self.addStatus("Error saving state: %s" % str(e))
 
@@ -544,38 +559,49 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
             if result == JFileChooser.APPROVE_OPTION:
                 selected_file = file_chooser.getSelectedFile()
                 file_path = selected_file.getAbsolutePath()
-                with open(file_path, 'r') as f:
-                    state_data = json.loads(f.read())
-                if "scope_method" in state_data:
-                    self.scope_method_combo.setSelectedItem(state_data["scope_method"])
-                if "scope_pattern" in state_data:
-                    self.scope_field.setText(state_data["scope_pattern"])
-                if "exclude_endpoints" in state_data:
-                    self.exclude_field.setText(state_data["exclude_endpoints"])
-                if "request_delay" in state_data:
-                    self.delay_spinner.setValue(state_data["request_delay"])
-                if "include_unauth" in state_data:
-                    self.test_unauth_checkbox.setSelected(state_data["include_unauth"])
-                if "skip_js" in state_data:
-                    self.skip_js_checkbox.setSelected(state_data["skip_js"])
-                if "skip_css" in state_data:
-                    self.skip_css_checkbox.setSelected(state_data["skip_css"])
-                if "skip_images" in state_data:
-                    self.skip_images_checkbox.setSelected(state_data["skip_images"])
-                if "skip_fonts" in state_data:
-                    self.skip_fonts_checkbox.setSelected(state_data["skip_fonts"])
-                if "skip_media" in state_data:
-                    self.skip_media_checkbox.setSelected(state_data["skip_media"])
-                if "roles" in state_data:
-                    self.roles = state_data["roles"]
-                    self.role_combo.removeAllItems()
-                    for role_name in self.roles.keys():
-                        self.role_combo.addItem(role_name)
-                    if self.role_combo.getItemCount() > 0:
-                        self.role_combo.setSelectedIndex(0)
-                        self.loadRoleDetails()
-                if "use_entire_history" in state_data:
-                    self.use_entire_history_checkbox.setSelected(state_data["use_entire_history"])
+                def _do_load(path):
+                    try:
+                        with open(path, 'r') as f:
+                            state_data = json.loads(f.read())
+                        from javax.swing import SwingUtilities
+                        def _apply():
+                            if "scope_method" in state_data:
+                                self.scope_method_combo.setSelectedItem(state_data["scope_method"])
+                            if "scope_pattern" in state_data:
+                                self.scope_field.setText(state_data["scope_pattern"])
+                            if "exclude_endpoints" in state_data:
+                                self.exclude_field.setText(state_data["exclude_endpoints"])
+                            if "request_delay" in state_data:
+                                self.delay_spinner.setValue(state_data["request_delay"])
+                            if "include_unauth" in state_data:
+                                self.test_unauth_checkbox.setSelected(state_data["include_unauth"])
+                            if "skip_js" in state_data:
+                                self.skip_js_checkbox.setSelected(state_data["skip_js"])
+                            if "skip_css" in state_data:
+                                self.skip_css_checkbox.setSelected(state_data["skip_css"])
+                            if "skip_images" in state_data:
+                                self.skip_images_checkbox.setSelected(state_data["skip_images"])
+                            if "skip_fonts" in state_data:
+                                self.skip_fonts_checkbox.setSelected(state_data["skip_fonts"])
+                            if "skip_media" in state_data:
+                                self.skip_media_checkbox.setSelected(state_data["skip_media"])
+                            if "roles" in state_data:
+                                self.roles = state_data["roles"]
+                                self.role_combo.removeAllItems()
+                                for role_name in self.roles.keys():
+                                    self.role_combo.addItem(role_name)
+                                if self.role_combo.getItemCount() > 0:
+                                    self.role_combo.setSelectedIndex(0)
+                                    self.loadRoleDetails()
+                            if "use_entire_history" in state_data:
+                                self.use_entire_history_checkbox.setSelected(state_data["use_entire_history"])
+                            self.addStatus("State loaded from %s" % path)
+                        SwingUtilities.invokeLater(_apply)
+                    except Exception as e:
+                        self.addStatus("Error loading state: %s" % str(e))
+                thread = threading.Thread(target=_do_load, args=(file_path,))
+                thread.daemon = True
+                thread.start()
         except Exception as e:
             self.addStatus("Error loading state: %s" % str(e))
 
@@ -595,18 +621,27 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                 file_path = selected_file.getAbsolutePath()
                 if not file_path.lower().endswith('.csv'):
                     file_path += '.csv'
-                with open(file_path, 'w') as f:
-                    f.write("Role,Method,URL,Status Code,Response Length,Notes\n")
-                    for result in self.test_results:
-                        row = [
-                            '"%s"' % result["role"].replace('"', '""'),
-                            result["method"],
-                            '"%s"' % result["url"].replace('"', '""'),
-                            result["status"],
-                            result["response_length"],
-                            '"%s"' % result["notes"].replace('"', '""')
-                        ]
-                        f.write(",".join(row) + "\n")
+                results_snapshot = list(self.test_results)
+                def _do_export_csv(path, results):
+                    try:
+                        with open(path, 'w') as f:
+                            f.write("Role,Method,URL,Status Code,Response Length,Notes\n")
+                            for result in results:
+                                row = [
+                                    '"%s"' % result["role"].replace('"', '""'),
+                                    result["method"],
+                                    '"%s"' % result["url"].replace('"', '""'),
+                                    result["status"],
+                                    result["response_length"],
+                                    '"%s"' % result["notes"].replace('"', '""')
+                                ]
+                                f.write(",".join(row) + "\n")
+                        self.addStatus("CSV exported to %s" % path)
+                    except Exception as e:
+                        self.addStatus("Error exporting CSV: %s" % str(e))
+                thread = threading.Thread(target=_do_export_csv, args=(file_path, results_snapshot))
+                thread.daemon = True
+                thread.start()
         except Exception as e:
             self.addStatus("Error exporting CSV: %s" % str(e))
 
@@ -627,8 +662,16 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                 if not file_path.lower().endswith('.html'):
                     file_path += '.html'
                 html_content = self._generateHTMLReport()
-                with open(file_path, 'w') as f:
-                    f.write(html_content)
+                def _do_export_html(path, content):
+                    try:
+                        with open(path, 'w') as f:
+                            f.write(content)
+                        self.addStatus("HTML exported to %s" % path)
+                    except Exception as e:
+                        self.addStatus("Error exporting HTML: %s" % str(e))
+                thread = threading.Thread(target=_do_export_html, args=(file_path, html_content))
+                thread.daemon = True
+                thread.start()
         except Exception as e:
             self.addStatus("Error exporting HTML: %s" % str(e))
 
@@ -876,7 +919,10 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
         try:
             service = request_response.getHttpService()
             request_info = self.helpers.analyzeRequest(service, request_response.getRequest())
-            url = "%s://%s%s" % (service.getProtocol(), service.getHost(), request_info.getUrl().getPath())
+            port_str = ""
+            if service.getPort() != 80 and service.getPort() != 443:
+                port_str = ":%d" % service.getPort()
+            url = "%s://%s%s%s" % (service.getProtocol(), service.getHost(), port_str, request_info.getUrl().getPath())
             return re.match(scope_pattern, url) is not None
         except:
             return False
@@ -910,7 +956,10 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
             original_request = original_request_response.getRequest()
             service = original_request_response.getHttpService()
             request_info = self.helpers.analyzeRequest(service, original_request)
-            url = "%s://%s%s" % (service.getProtocol(), service.getHost(), request_info.getUrl().getPath())
+            port_str = ""
+            if service.getPort() != 80 and service.getPort() != 443:
+                port_str = ":%d" % service.getPort()
+            url = "%s://%s%s%s" % (service.getProtocol(), service.getHost(), port_str, request_info.getUrl().getPath())
             method = request_info.getMethod()
             url_key = "%s %s" % (method, url)
             if not self.use_entire_history_checkbox.isSelected() and url_key in self.tested_urls:
