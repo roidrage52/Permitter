@@ -120,6 +120,15 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
     def _copyRolesMap(self, roles):
         return dict((name, self._copyRoleData(data)) for name, data in roles.items())
 
+    def _htmlEscape(self, value):
+        if value is None:
+            return ""
+        try:
+            text = value if isinstance(value, basestring) else str(value)
+        except NameError:
+            text = value if isinstance(value, str) else str(value)
+        return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
     def _makeStoredRequestResponse(self, service, sent_request, response):
         saver = getattr(self.callbacks, "saveBuffersToTempFiles", None)
         if response is not None and saver is not None:
@@ -900,20 +909,20 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
             <ul>
     """.format(
                 timestamp=timestamp,
-                scope=self.scope_field.getText(),
-                excluded=self.exclude_field.getText(),
+                scope=self._htmlEscape(self.scope_field.getText()),
+                excluded=self._htmlEscape(self.exclude_field.getText()),
                 total=len(results)
             )
             for status, count in sorted(status_counts.items()):
                 html += "        <li>HTTP {status}: {count} tests</li>\n".format(
-                    status=status, count=count)
+                    status=self._htmlEscape(status), count=count)
             html += """    </ul>
             <p><strong>Roles Tested:</strong></p>
             <ul>
     """
             for role, count in sorted(role_counts.items()):
                 html += "        <li>{role}: {count} tests</li>\n".format(
-                    role=role, count=count)
+                    role=self._htmlEscape(role), count=count)
             html += """    </ul>
         </div>
         <h2>Detailed Results</h2>
@@ -969,13 +978,13 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                     </td>
                 </tr>
     """.format(
-                    role=result["role"],
-                    method=result["method"],
-                    url=result["url"],
+                    role=self._htmlEscape(result["role"]),
+                    method=self._htmlEscape(result["method"]),
+                    url=self._htmlEscape(result["url"]),
                     status_class=status_class,
-                    status=result["status"],
-                    response_length=result["response_length"],
-                    notes=result["notes"],
+                    status=self._htmlEscape(result["status"]),
+                    response_length=self._htmlEscape(result["response_length"]),
+                    notes=self._htmlEscape(result["notes"]),
                     i=i,
                     request_content=request_content,
                     response_content=response_content
