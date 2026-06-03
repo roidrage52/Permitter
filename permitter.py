@@ -30,6 +30,8 @@ class BurpExtender(IBurpExtender, ITab, IContextMenuFactory, IMessageEditorContr
         self.current_testing_thread = None
         self.tested_urls = set()
         self.current_request_response = None
+        self.worker_threads = []
+        self.worker_threads_lock = threading.Lock()
         self.createGUI()
         callbacks.addSuiteTab(self)
         print("Permitter")
@@ -80,10 +82,26 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
         '''
         )
 
+    def _startTrackedThread(self, target, args=()):
+        thread = threading.Thread(target=target, args=args)
+        thread.daemon = True
+        with self.worker_threads_lock:
+            self.worker_threads = [t for t in self.worker_threads if t.isAlive()]
+            self.worker_threads.append(thread)
+        thread.start()
+        return thread
+
     def extensionUnloaded(self):
         self.stop_testing = True
         if self.current_testing_thread and self.current_testing_thread.isAlive():
             self.current_testing_thread.join(5)
+        with self.worker_threads_lock:
+            threads_to_join = [t for t in self.worker_threads if t.isAlive()]
+        for thread in threads_to_join:
+            try:
+                thread.join(5)
+            except Exception:
+                pass
 
     def createGUI(self):
         self.panel = JPanel(BorderLayout())
@@ -543,9 +561,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                         self.addStatus("State saved to %s" % path)
                     except Exception as e:
                         self.addStatus("Error saving state: %s" % str(e))
-                thread = threading.Thread(target=_do_save, args=(file_path, state_data))
-                thread.daemon = True
-                thread.start()
+                self._startTrackedThread(_do_save, args=(file_path, state_data))
         except Exception as e:
             self.addStatus("Error saving state: %s" % str(e))
 
@@ -599,9 +615,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                         SwingUtilities.invokeLater(_apply)
                     except Exception as e:
                         self.addStatus("Error loading state: %s" % str(e))
-                thread = threading.Thread(target=_do_load, args=(file_path,))
-                thread.daemon = True
-                thread.start()
+                self._startTrackedThread(_do_load, args=(file_path,))
         except Exception as e:
             self.addStatus("Error loading state: %s" % str(e))
 
@@ -639,9 +653,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                         self.addStatus("CSV exported to %s" % path)
                     except Exception as e:
                         self.addStatus("Error exporting CSV: %s" % str(e))
-                thread = threading.Thread(target=_do_export_csv, args=(file_path, results_snapshot))
-                thread.daemon = True
-                thread.start()
+                self._startTrackedThread(_do_export_csv, args=(file_path, results_snapshot))
         except Exception as e:
             self.addStatus("Error exporting CSV: %s" % str(e))
 
@@ -669,9 +681,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                         self.addStatus("HTML exported to %s" % path)
                     except Exception as e:
                         self.addStatus("Error exporting HTML: %s" % str(e))
-                thread = threading.Thread(target=_do_export_html, args=(file_path, html_content))
-                thread.daemon = True
-                thread.start()
+                self._startTrackedThread(_do_export_html, args=(file_path, html_content))
         except Exception as e:
             self.addStatus("Error exporting HTML: %s" % str(e))
 
@@ -1325,6 +1335,8 @@ class AuthTestMenuHandler(ActionListener):
             def test_selected():
                 try:
                     for request_response in selected_messages:
+                        if self.extender.stop_testing:
+                            break
                         if not self.extender._isExcluded(request_response):
                             self.extender._testRequestWithAllRoles(request_response, "Manual Test")
                         else:
@@ -1332,6 +1344,4 @@ class AuthTestMenuHandler(ActionListener):
                     self.extender.addStatus("Completed testing selected requests")
                 except Exception as e:
                     self.extender.addStatus("Error testing selected requests: %s" % str(e))
-            thread = threading.Thread(target=test_selected)
-            thread.daemon = True
-            thread.start()
+            self.extender._startTrackedThread(test_selected)
