@@ -26,6 +26,7 @@ class BurpExtender(IBurpExtender, ITab, IContextMenuFactory, IMessageEditorContr
         self.test_results = []
         self.target_scope = ""
         self.test_lock = threading.Lock()
+        self.roles_lock = threading.Lock()
         self.stop_testing = False
         self.current_testing_thread = None
         self.tested_urls = set()
@@ -102,6 +103,20 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                 thread.join(5)
             except Exception:
                 pass
+
+    def _copyRoleData(self, role_data):
+        if not isinstance(role_data, dict):
+            return role_data
+        copied = {}
+        for key, value in role_data.items():
+            if key == "regex_pairs" and isinstance(value, (list, tuple)):
+                copied[key] = [dict(p) if isinstance(p, dict) else p for p in value]
+            else:
+                copied[key] = value
+        return copied
+
+    def _copyRolesMap(self, roles):
+        return dict((name, self._copyRoleData(data)) for name, data in roles.items())
 
     def createGUI(self):
         self.panel = JPanel(BorderLayout())
@@ -374,8 +389,12 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
     def loadRoleDetails(self):
         selected_role = str(self.role_combo.getSelectedItem()) if self.role_combo.getSelectedItem() else None
         self.clearPatternPanels()
-        if selected_role and selected_role in self.roles:
-            role_data = self.roles[selected_role]
+        role_data = None
+        if selected_role:
+            with self.roles_lock:
+                if selected_role in self.roles:
+                    role_data = self._copyRoleData(self.roles[selected_role])
+        if role_data is not None:
             self.role_name_field.setText(selected_role)
             for i, pattern in enumerate(role_data.get("regex_pairs", [])):
                 self.createPatternPair(i)
@@ -405,10 +424,11 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
         role_data = {
             "regex_pairs": regex_pairs,
         }
-        if old_name and old_name != role_name and old_name in self.roles:
-            del self.roles[old_name]
-            self.role_combo.removeItem(old_name)
-        self.roles[role_name] = role_data
+        with self.roles_lock:
+            if old_name and old_name != role_name and old_name in self.roles:
+                del self.roles[old_name]
+                self.role_combo.removeItem(old_name)
+            self.roles[role_name] = role_data
         if role_name not in [str(self.role_combo.getItemAt(i)) for i in range(self.role_combo.getItemCount())]:
             self.role_combo.addItem(role_name)
         self.role_combo.setSelectedItem(role_name)
@@ -516,8 +536,13 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
 
     def deleteRole(self):
         selected_role = str(self.role_combo.getSelectedItem()) if self.role_combo.getSelectedItem() else None
-        if selected_role and selected_role in self.roles:
-            del self.roles[selected_role]
+        deleted = False
+        if selected_role:
+            with self.roles_lock:
+                if selected_role in self.roles:
+                    del self.roles[selected_role]
+                    deleted = True
+        if deleted:
             self.role_combo.removeItem(selected_role)
             self.clearPatternPanels()
             self.role_name_field.setText("")
@@ -538,6 +563,8 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                 file_path = selected_file.getAbsolutePath()
                 if not file_path.lower().endswith('.json'):
                     file_path += '.json'
+                with self.roles_lock:
+                    roles_snapshot = self._copyRolesMap(self.roles)
                 state_data = {
                     "version": "1.0",
                     "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -546,7 +573,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                     "exclude_endpoints": self.exclude_field.getText(),
                     "request_delay": self.delay_spinner.getValue(),
                     "include_unauth": self.test_unauth_checkbox.isSelected(),
-                    "roles": self.roles,
+                    "roles": roles_snapshot,
                     "skip_js": self.skip_js_checkbox.isSelected(),
                     "skip_css": self.skip_css_checkbox.isSelected(),
                     "skip_images": self.skip_images_checkbox.isSelected(),
@@ -602,9 +629,11 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                             if "skip_media" in state_data:
                                 self.skip_media_checkbox.setSelected(state_data["skip_media"])
                             if "roles" in state_data:
-                                self.roles = state_data["roles"]
+                                with self.roles_lock:
+                                    self.roles = state_data["roles"]
+                                    role_names = list(self.roles.keys())
                                 self.role_combo.removeAllItems()
-                                for role_name in self.roles.keys():
+                                for role_name in role_names:
                                     self.role_combo.addItem(role_name)
                                 if self.role_combo.getItemCount() > 0:
                                     self.role_combo.setSelectedIndex(0)
@@ -621,8 +650,9 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
 
     def exportCSV(self):
         try:
-            if not self.test_results:
-                return
+            with self.test_lock:
+                if not self.test_results:
+                    return
             file_chooser = JFileChooser()
             file_chooser.setDialogTitle("Export Results to CSV")
             default_name = "permitter_results_%s.csv" % time.strftime("%Y%m%d_%H%M%S")
@@ -635,7 +665,8 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                 file_path = selected_file.getAbsolutePath()
                 if not file_path.lower().endswith('.csv'):
                     file_path += '.csv'
-                results_snapshot = list(self.test_results)
+                with self.test_lock:
+                    results_snapshot = list(self.test_results)
                 def _do_export_csv(path, results):
                     try:
                         with open(path, 'w') as f:
@@ -659,8 +690,9 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
 
     def exportHTML(self):
         try:
-            if not self.test_results:
-                return
+            with self.test_lock:
+                if not self.test_results:
+                    return
             file_chooser = JFileChooser()
             file_chooser.setDialogTitle("Export Results to HTML")
             default_name = "permitter_results_%s.html" % time.strftime("%Y%m%d_%H%M%S")
@@ -673,7 +705,9 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                 file_path = selected_file.getAbsolutePath()
                 if not file_path.lower().endswith('.html'):
                     file_path += '.html'
-                html_content = self._generateHTMLReport()
+                with self.test_lock:
+                    results_snapshot = list(self.test_results)
+                html_content = self._generateHTMLReport(results_snapshot)
                 def _do_export_html(path, content):
                     try:
                         with open(path, 'w') as f:
@@ -685,12 +719,12 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
         except Exception as e:
             self.addStatus("Error exporting HTML: %s" % str(e))
 
-    def _generateHTMLReport(self):
+    def _generateHTMLReport(self, results):
         try:
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
             status_counts = {}
             role_counts = {}
-            for result in self.test_results:
+            for result in results:
                 status = result["status"]
                 role = result["role"]
                 status_counts[status] = status_counts.get(status, 0) + 1
@@ -771,7 +805,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                 timestamp=timestamp,
                 scope=self.scope_field.getText(),
                 excluded=self.exclude_field.getText(),
-                total=len(self.test_results)
+                total=len(results)
             )
             for status, count in sorted(status_counts.items()):
                 html += "        <li>HTTP {status}: {count} tests</li>\n".format(
@@ -799,7 +833,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
             </thead>
             <tbody>
     """
-            for i, result in enumerate(self.test_results):
+            for i, result in enumerate(results):
                 status_class = "success" if result["status"] == "200" else (
                     "error" if result["status"] in ["401", "403"] else "warning")
                 request_content = ""
@@ -860,12 +894,16 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
             return "<html><body><h1>Error generating report</h1></body></html>"
         
     def testProxyHistory(self):
-        if not self.roles:
+        with self.roles_lock:
+            has_roles = bool(self.roles)
+        if not has_roles:
             return
         self.startTesting("Proxy History")
 
     def testSiteMap(self):
-        if not self.roles:
+        with self.roles_lock:
+            has_roles = bool(self.roles)
+        if not has_roles:
             return
         self.startTesting("Site Map")
 
@@ -874,7 +912,8 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
             self.addStatus("Testing already in progress")
             return
         self.stop_testing = False
-        self.tested_urls.clear()
+        with self.test_lock:
+            self.tested_urls.clear()
         self.test_history_button.setEnabled(False)
         self.test_target_button.setEnabled(False)
         self.stop_test_button.setEnabled(True)
@@ -972,12 +1011,19 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
             url = "%s://%s%s%s" % (service.getProtocol(), service.getHost(), port_str, request_info.getUrl().getPath())
             method = request_info.getMethod()
             url_key = "%s %s" % (method, url)
-            if not self.use_entire_history_checkbox.isSelected() and url_key in self.tested_urls:
-                return False
-            if not self.use_entire_history_checkbox.isSelected():
-                self.tested_urls.add(url_key)
+            dedup = not self.use_entire_history_checkbox.isSelected()
+            if dedup:
+                with self.test_lock:
+                    if url_key in self.tested_urls:
+                        return False
+                    self.tested_urls.add(url_key)
+            with self.roles_lock:
+                roles_snapshot = [
+                    (role_name, self._copyRoleData(role_data))
+                    for role_name, role_data in self.roles.items()
+                ]
             test_threads = []
-            for role_name, role_data in self.roles.items():
+            for role_name, role_data in roles_snapshot:
                 if self.stop_testing:
                     break
                 thread = threading.Thread(target=self._testSingleRole, args=(
@@ -1312,8 +1358,12 @@ class ResultsTableSelectionHandler(ListSelectionListener):
     def valueChanged(self, event):
         if not event.getValueIsAdjusting():
             selected_row = self.extender.results_table.getSelectedRow()
-            if selected_row >= 0 and selected_row < len(self.extender.test_results):
-                result = self.extender.test_results[selected_row]
+            result = None
+            if selected_row >= 0:
+                with self.extender.test_lock:
+                    if selected_row < len(self.extender.test_results):
+                        result = self.extender.test_results[selected_row]
+            if result is not None:
                 self.extender.showRequestResponse(result)
 
 class CopyPatternHandler(ActionListener):
