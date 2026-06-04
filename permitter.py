@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from burp import IBurpExtender, IHttpListener, ITab, IContextMenuFactory, IMessageEditorController, IExtensionStateListener
 from java.awt import BorderLayout, GridBagLayout, GridBagConstraints, Insets, Dimension, FlowLayout
-from javax.swing import JPanel, JLabel, JTextField, JTextArea, JCheckBox, JButton, JScrollPane, BorderFactory, JMenuItem, JTable, JComboBox, ListSelectionModel, JSpinner, SpinnerNumberModel, JSplitPane, JFileChooser
+from javax.swing import JPanel, JLabel, JTextField, JTextArea, JCheckBox, JButton, JScrollPane, BorderFactory, JMenuItem, JTable, JComboBox, ListSelectionModel, JSpinner, SpinnerNumberModel, JSplitPane, JFileChooser, SwingUtilities
 from javax.swing.table import DefaultTableModel
 from javax.swing.event import ListSelectionListener
 from javax.swing.filechooser import FileNameExtensionFilter
@@ -180,10 +180,12 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
         return payload.get("service")
 
     def _enforceResultCap(self):
-        try:
-            cap = int(self.max_results_spinner.getValue())
-        except Exception:
-            cap = self.default_max_results
+        cap = getattr(self, "_cap_value", None)
+        if cap is None:
+            try:
+                cap = int(self.max_results_spinner.getValue())
+            except Exception:
+                cap = self.default_max_results
         if cap <= 0:
             return  
         overflow = len(self.test_results) - cap
@@ -502,11 +504,14 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
         role_data = {
             "regex_pairs": regex_pairs,
         }
+        removed_old = False
         with self.roles_lock:
             if old_name and old_name != role_name and old_name in self.roles:
                 del self.roles[old_name]
-                self.role_combo.removeItem(old_name)
+                removed_old = True
             self.roles[role_name] = role_data
+        if removed_old:
+            self.role_combo.removeItem(old_name)
         if role_name not in [str(self.role_combo.getItemAt(i)) for i in range(self.role_combo.getItemCount())]:
             self.role_combo.addItem(role_name)
         self.role_combo.setSelectedItem(role_name)
@@ -1020,6 +1025,14 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
             self.addStatus("Testing already in progress")
             return
         self.stop_testing = False
+        try:
+            self._cap_value = int(self.max_results_spinner.getValue())
+        except Exception:
+            self._cap_value = self.default_max_results
+        try:
+            self._delay_ms = int(self.delay_spinner.getValue())
+        except Exception:
+            self._delay_ms = 0
         with self.test_lock:
             self.tested_urls.clear()
         self.test_history_button.setEnabled(False)
@@ -1198,7 +1211,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                             self.test_results.append(result)
                             self._enforceResultCap()
                             self._updateResultsTable()
-                    delay_ms = self.delay_spinner.getValue()
+                    delay_ms = getattr(self, '_delay_ms', 0)
                     if delay_ms > 0:
                         time.sleep(delay_ms / 1000.0)
                 except Exception as e:
@@ -1263,7 +1276,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                             self.test_results.append(result)
                             self._enforceResultCap()
                             self._updateResultsTable()
-                    delay_ms = self.delay_spinner.getValue()
+                    delay_ms = getattr(self, '_delay_ms', 0)
                     if delay_ms > 0:
                         time.sleep(delay_ms / 1000.0)
                 except Exception as e:
@@ -1364,10 +1377,8 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
         return " | ".join(notes)
     
     def _updateResultsTable(self):
-        while self.results_table_model.getRowCount() > 0:
-            self.results_table_model.removeRow(0)
-        for result in self.test_results:
-            row = [
+        rows = [
+            [
                 result["role"],
                 result["method"],
                 result["url"],
@@ -1375,7 +1386,22 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                 result["response_length"],
                 result["notes"]
             ]
-            self.results_table_model.addRow(row)
+            for result in self.test_results
+        ]
+
+        def _apply(rows=rows):
+            model = self.results_table_model
+            current = model.getRowCount()
+            target = len(rows)
+            if target >= current:
+                for i in range(current, target):
+                    model.addRow(rows[i])
+            else:
+                while model.getRowCount() > 0:
+                    model.removeRow(0)
+                for row in rows:
+                    model.addRow(row)
+        SwingUtilities.invokeLater(_apply)
 
     def showRequestResponse(self, result):
         try:
@@ -1403,9 +1429,12 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
             self.test_results = []
             self.tested_urls.clear()
             self._updateResultsTable()
+        self.current_request_response = None
+
+        def _clear_editors():
             self.request_editor.setMessage(None, True)
             self.response_editor.setMessage(None, False)
-            self.current_request_response = None
+        SwingUtilities.invokeLater(_clear_editors)
 
     def addStatus(self, message):
         current_text = self.status_area.getText()
