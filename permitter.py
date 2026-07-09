@@ -488,7 +488,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
     def saveRoleDetails(self):
         role_name = self.role_name_field.getText().strip()
         if not role_name:
-            self.addStatus("Error: Role name cannot be empty")
+            self._logError("Error: Role name cannot be empty")
             return
         regex_pairs = []
         for pattern_data in self.role_pattern_panels:
@@ -552,7 +552,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
         def _apply():
             try:
                 if error is not None:
-                    self.addStatus("Error refreshing targets: %s" % error)
+                    self._logError("Error refreshing targets: %s" % error)
                     return
                 if empty_map:
                     self.addStatus("No target history found")
@@ -586,7 +586,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                 scope_pattern = "%s/.*" % escaped_target
                 self.scope_field.setText(scope_pattern)
         except Exception as e:
-            self.addStatus("Error updating scope from target: %s" % str(e))
+            self._logError("Error updating scope from target: %s" % str(e))
 
     def actionPerformed(self, event):
         source = event.getSource()
@@ -696,10 +696,10 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                             f.write(json.dumps(data, indent=2))
                         self.addStatus("State saved to %s" % path)
                     except Exception as e:
-                        self.addStatus("Error saving state: %s" % str(e))
+                        self._logError("Error saving state: %s" % str(e))
                 self._startTrackedThread(_do_save, args=(file_path, state_data))
         except Exception as e:
-            self.addStatus("Error saving state: %s" % str(e))
+            self._logError("Error saving state: %s" % str(e))
 
     def loadState(self):
         try:
@@ -754,10 +754,10 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                             self.addStatus("State loaded from %s" % path)
                         SwingUtilities.invokeLater(_apply)
                     except Exception as e:
-                        self.addStatus("Error loading state: %s" % str(e))
+                        self._logError("Error loading state: %s" % str(e))
                 self._startTrackedThread(_do_load, args=(file_path,))
         except Exception as e:
-            self.addStatus("Error loading state: %s" % str(e))
+            self._logError("Error loading state: %s" % str(e))
 
     def exportCSV(self):
         try:
@@ -794,10 +794,10 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                                 f.write(",".join(row) + "\n")
                         self.addStatus("CSV exported to %s" % path)
                     except Exception as e:
-                        self.addStatus("Error exporting CSV: %s" % str(e))
+                        self._logError("Error exporting CSV: %s" % str(e))
                 self._startTrackedThread(_do_export_csv, args=(file_path, results_snapshot))
         except Exception as e:
-            self.addStatus("Error exporting CSV: %s" % str(e))
+            self._logError("Error exporting CSV: %s" % str(e))
 
     def exportHTML(self):
         try:
@@ -824,10 +824,10 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                             self._writeHTMLReport(f, results)
                         self.addStatus("HTML exported to %s" % path)
                     except Exception as e:
-                        self.addStatus("Error exporting HTML: %s" % str(e))
+                        self._logError("Error exporting HTML: %s" % str(e))
                 self._startTrackedThread(_do_export_html, args=(file_path, results_snapshot))
         except Exception as e:
-            self.addStatus("Error exporting HTML: %s" % str(e))
+            self._logError("Error exporting HTML: %s" % str(e))
 
     MAX_EMBED = 64 * 1024   
     def _sanitizeForReport(self, b):
@@ -1006,7 +1006,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
     </body>
     </html>""")
         except Exception as e:
-            self.addStatus("Error generating HTML report: %s" % str(e))
+            self._logError("Error generating HTML report: %s" % str(e))
             return "<html><body><h1>Error generating report</h1></body></html>"
         
     def testProxyHistory(self):
@@ -1066,7 +1066,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                     if self._testRequestWithAllRoles(request_response, "Proxy History"):
                         tested_count += 1
         except Exception as e:
-            self.addStatus("Error in proxy history testing: %s" % str(e))
+            self._logError("Error in proxy history testing: %s" % str(e))
         finally:
             self.stopTesting()
 
@@ -1082,7 +1082,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                     if self._testRequestWithAllRoles(request_response, "Site Map"):
                         tested_count += 1
         except Exception as e:
-            self.addStatus("Error in site map testing: %s" % str(e))
+            self._logError("Error in site map testing: %s" % str(e))
         finally:
             self.stopTesting()
 
@@ -1167,7 +1167,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                 thread.join()
             return True
         except Exception as e:
-            self.addStatus("Error in _testRequestWithAllRoles: %s" % str(e))
+            self._logError("Error in _testRequestWithAllRoles: %s" % str(e))
             return False
         
     def _testSingleRole(self, original_request_response, test_type, role_name, role_data, url, method, service):
@@ -1232,9 +1232,9 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                         self.test_results.append(result)
                         self._enforceResultCap()
                         self._updateResultsTable()
-                    self.addStatus("Error testing %s with %s: %s" % (url, role_name, str(e)))
+                    self._logError("Error testing %s with %s: %s" % (url, role_name, str(e)))
         except Exception as e:
-            self.addStatus("Error in _testSingleRole for %s: %s" % (role_name, str(e)))
+            self._logError("Error in _testSingleRole for %s: %s" % (role_name, str(e)))
 
     def _testUnauthenticated(self, original_request_response, test_type, url, method, service):
         try:
@@ -1297,9 +1297,9 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                         self.test_results.append(result)
                         self._enforceResultCap()
                         self._updateResultsTable()
-                    self.addStatus("Error testing %s unauthenticated: %s" % (url, str(e)))
+                    self._logError("Error testing %s unauthenticated: %s" % (url, str(e)))
         except Exception as e:
-            self.addStatus("Error in _testUnauthenticated: %s" % str(e))
+            self._logError("Error in _testUnauthenticated: %s" % str(e))
 
     def _removeAuthPatterns(self, original_request):
         try:
@@ -1330,7 +1330,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
             modified_request_str = re.sub(r'Basic\s+[A-Za-z0-9+/]+=*', '', modified_request_str, flags=re.IGNORECASE)
             return self.helpers.stringToBytes(modified_request_str)
         except Exception as e:
-            self.addStatus("Error removing auth patterns: %s" % str(e))
+            self._logError("Error removing auth patterns: %s" % str(e))
             return original_request
         
     def _getTestDescription(self, role_name, role_data, actual_port):
@@ -1348,11 +1348,11 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                 try:
                     modified_request_str = re.sub(find_pattern, replacement, modified_request_str, flags=re.IGNORECASE | re.MULTILINE)
                 except Exception as e:
-                    self.addStatus("Regex error in pattern '%s': %s" % (find_pattern, str(e)))
+                    self._logError("Regex error in pattern '%s': %s" % (find_pattern, str(e)))
                     continue
             return self.helpers.stringToBytes(modified_request_str)
         except Exception as e:
-            self.addStatus("Error applying role patterns: %s" % str(e))
+            self._logError("Error applying role patterns: %s" % str(e))
             return None
         
     def _analyzeResponse(self, status_code, original_response, test_response):
@@ -1425,7 +1425,7 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
                 self.request_editor.setMessage(None, True)
                 self.response_editor.setMessage(None, False)
         except Exception as e:
-            self.addStatus("Error displaying request/response: %s" % str(e))
+            self._logError("Error displaying request/response: %s" % str(e))
 
     def clearResults(self):
         with self.test_lock:
@@ -1440,15 +1440,24 @@ JSYTJzaX2Ds2ClCwTyz5P4Gjx6CoKwBIdsEspog=
         SwingUtilities.invokeLater(_clear_editors)
 
     def addStatus(self, message):
-        current_text = self.status_area.getText()
         timestamp = time.strftime("%H:%M:%S")
         new_message = "[%s] %s" % (timestamp, message)
-        lines = current_text.split('\n') if current_text else []
-        if len(lines) > 50:
-            lines = lines[:25]
-        new_text = new_message + '\n' + '\n'.join(lines)
-        self.status_area.setText(new_text)
         print(new_message)
+        def _apply():
+            current_text = self.status_area.getText()
+            lines = current_text.split('\n') if current_text else []
+            if len(lines) > 50:
+                lines = lines[:25]
+            new_text = new_message + '\n' + '\n'.join(lines)
+            self.status_area.setText(new_text)
+        SwingUtilities.invokeLater(_apply)
+
+    def _logError(self, message):
+        self.addStatus(message)
+        try:
+            self.callbacks.printError(message)
+        except Exception:
+            pass
 
     def getTabCaption(self):
         return "Permitter"
